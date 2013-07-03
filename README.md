@@ -1,4 +1,5 @@
 AGOL.locationFinder
+===================
 
 A feature rich location finder powered by ArcGIS Online. This location finder uses the latest geocoding services
 from AGOL to execute fast and accurate geosearches.
@@ -8,7 +9,8 @@ to New Zealand.
 
 This location finder has been built with the requirement of embedding the results of a geosearch in mind.
 
-Usage ...
+Usage
+-----
 
 Example 1:
 http://SERVER/Index.html?address=57 Boulcott Street Wellington
