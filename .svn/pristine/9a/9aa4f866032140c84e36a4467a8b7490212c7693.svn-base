@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=7, IE=9, IE=10">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no"/>
+    <title>Location Finder</title>
+    <link rel="stylesheet"
+          href="http://serverapi.arcgisonline.com/jsapi/arcgis/3.5/js/dojo/dijit/themes/claro/claro.css">
+    <link rel="stylesheet" href="http://serverapi.arcgisonline.com/jsapi/arcgis/3.5/js/esri/css/esri.css">
+    <style>
+        html, body, #map {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #information {
+            top: 95px;
+            color: #444;
+            height: auto;
+            font-family: arial;
+            left: 70px;
+            margin: 5px;
+            padding: 10px;
+            position: absolute;
+            text-align: left;
+            width: 205px;
+            z-index: 40;
+        }
+
+        .buttons {
+            -webkit-border-radius:4px;
+            -moz-border-radius:4px;
+            -ms-border-radius:4px;
+            -o-border-radius:4px;
+            border-radius:4px;
+            background:#5daddd;
+            font-size:.70em;
+            line-height:2em;
+            -webkit-box-shadow:0 1px 2px rgba(0,0,0,0.125);
+            -moz-box-shadow:0 1px 2px rgba(0,0,0,0.125);
+            box-shadow:0 1px 2px rgba(0,0,0,0.125);
+            -webkit-box-sizing:border-box;
+            -moz-box-sizing:border-box;
+            box-sizing:border-box;
+            -webkit-user-select:none;
+            -moz-user-select:none;
+            user-select:none;
+            -webkit-transition:all .05s linear;
+            -moz-transition:all .05s linear;
+            -o-transition:all .05s linear;
+            transition:all .05s linear;
+            font-family:"Avenir LT W01 65 Medium",Arial,Helvetica,sans-serif;
+            border:none;
+            color:#FFF;
+            display:inline-block;
+            text-transform:uppercase;
+            white-space:nowrap;
+            cursor:pointer;
+            text-shadow:0 -1px 1px rgba(0,0,0,0.125);
+            letter-spacing:1px;
+            -webkit-font-smoothing:antialiased;
+            margin:1px 0 0;
+            padding:.3em 1.25em;
+        }
+
+        #locator {
+            display: block;
+            position: absolute;
+            z-index: 2;
+            top: 20px;
+            left: 74px;
+        }
+
+        body {
+            background-color: #FFF;
+            overflow: hidden;
+            font-family: "Trebuchet MS";
+        }
+    </style>
+
+    <script type="text/javascript" src="ZeroClipboard.min.js"></script>
+    <script src="http://serverapi.arcgisonline.com/jsapi/arcgis/3.5/"></script>
+
+    <script>
+
+        dojo.require("esri.map");
+        dojo.require("esri.tasks.locator");
+        dojo.require("dojo.number");
+        dojo.require("esri.dijit.Geocoder");
+        dojo.require("dijit.Dialog");
+        dojo.require("dijit.form.Button");
+
+        var map, basemap, onloadLocator, graphicsLayer, initialExtent, locator, pX, pY;
+        var embedUrl, embedIframe
+
+        var currentBasemap = 1;
+        var basemapStreets = "http://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer";
+        var basemapTopographic = "http://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer";
+        var basemapImagery = "http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
+
+        function init() {
+
+            initialExtent = new esri.geometry.Extent(17145870.033696186, -5445562.888822708, 21842161.05153617, -3865456.6401119647,
+                    new esri.SpatialReference({wkid:102100}) );
+
+            map = new esri.Map("map", {
+                sliderStyle: "small",
+                extent: initialExtent
+            });
+
+            var basemapToLoad = queryStringToParse("basemap")
+
+            if (basemapToLoad == "") {
+                basemapToLoad = 1;
+            }
+            if (basemapToLoad == 0) {
+                basemap = new esri.layers.ArcGISTiledMapServiceLayer(basemapStreets);
+            } else if (basemapToLoad == 1) {
+                basemap = new esri.layers.ArcGISTiledMapServiceLayer(basemapTopographic);
+            } else if (basemapToLoad == 2) {
+                basemap = new esri.layers.ArcGISTiledMapServiceLayer(basemapImagery);
+            }
+
+            basemap.id = "basemap";
+            basemap.opacity = "0.75";
+
+            map.addLayer(basemap);
+
+            var mode = queryStringToParse("mode");
+
+            if (mode == "embed") {
+
+                document.getElementById("locator").style.display = 'none';
+                document.getElementById("generateMarkup").style.display = 'none';
+                document.getElementById("selectBasemap").style.display = 'none';
+
+            } else {
+
+                document.getElementById("locator").style.display = 'block';
+
+                locator = new esri.dijit.Geocoder({
+                    autoComplete: true,
+                    maxLocations: 10,
+                    autoNavigate: false,
+                    arcgisGeocoder: {
+                        placeholder: "Start Typing An Address ...",
+                        sourceCountry: "NZ"
+                    },
+                    map: map
+                }, "locator");
+                locator.startup();
+
+                onloadLocator = new esri.tasks.Locator("http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer");
+
+                dojo.connect(onloadLocator, "onAddressToLocationsComplete", showResults);
+                dojo.connect(locator, "onSelect", processSelection);
+                dojo.connect(locator, "onClear", closeMarkup);
+
+            }
+
+            graphicsLayer = new esri.layers.GraphicsLayer();
+            map.addLayer(graphicsLayer);
+
+            processQueryString();
+
+        }
+
+        //processes The Querystring Parameters
+        function processQueryString() {
+
+            var mode = queryStringToParse("mode");
+
+            if (mode == "embed") {
+
+                var xmin = parseInt(queryStringToParse("xMin"));
+                var ymin = parseInt(queryStringToParse("yMin"));
+                var xmax = parseInt(queryStringToParse("xMax"));
+                var ymax = parseInt(queryStringToParse("yMax"));
+
+                if (isNaN(xmin) || isNaN(ymin) || isNaN(xmax) || isNaN(ymax)) {
+
+                    var embedMessage = "<span style=color:indianred;><b>Problem:</b> Looks Like An Invalid Extent Has Been Specified</span>";
+                    updateInformation(embedMessage);
+                    updateInformationLocation(1);
+
+                } else {
+
+                    var chosenExtent = new esri.geometry.Extent(xmin, ymin, xmax, ymax,
+                            new esri.SpatialReference({wkid: map.extent.spatialReference.wkid }));
+
+                    var pLocation = new esri.geometry.Point(queryStringToParse("pX"), queryStringToParse("pY"), new esri.SpatialReference({ wkid: map.extent.spatialReference.wkid }));
+
+                    var symbol = generateSymbol()
+                    var graphic = new esri.Graphic(pLocation, symbol);
+                    graphicsLayer.add(graphic);
+
+                    map.setExtent(chosenExtent);
+                }
+
+
+            } else {
+                if (location.search == "") {
+                    return;
+
+                } else if(location.search.indexOf("address") == 1) {
+
+                    var address = queryStringToParse("address");
+                    if (address == "") {
+
+                        var embedMessage = "<span style=color:indianred;><b>Problem:</b> Please Provide An Address To Search For</span>";
+                        updateInformation(embedMessage);
+                        updateInformationLocation(2);
+
+                    } else {
+                        locate(address);
+                    }
+                }
+            }
+        }
+
+        //processes The Selection From The Locator
+        function processSelection(selection) {
+
+            graphicsLayer.clear();
+
+            var geom = selection.feature.geometry;
+            pX = selection.feature.geometry.x;
+            pY = selection.feature.geometry.y;
+
+            var symbol = generateSymbol();
+            var graphic = new esri.Graphic(geom, symbol);
+            graphicsLayer.add(graphic);
+
+            if (geom !== undefined) {
+                map.centerAndZoom(geom, 16);
+                document.getElementById("generateMarkup").style.display = 'block';
+                document.getElementById("selectBasemap").style.display = 'block';
+            }
+        }
+
+        //runs The onloadLocator
+        function locate(address) {
+
+            var address = {"SingleLine": address, sourceCountry: "NZ"};
+            onloadLocator.outSpatialReference = map.extent.spatialReference;
+            var parameters = {
+                address: address,
+                outFields: ["Loc_name"]
+            }
+
+            onloadLocator.addressToLocations(parameters);
+        }
+
+        //shows The Results From The onloadLocator
+        function showResults(candidates) {
+
+            var geom;
+
+            if (candidates.length == 0) {
+                alert("Invalid Address Or No Results Found");
+
+            } else {
+                dojo.every(candidates, function (candidate) {
+                    console.log(candidate.score);
+                    if (candidate.score > 50) {
+                        console.log(candidate.location);
+
+                        geom = candidate.location;
+                        pX = candidate.location.x;
+                        pY = candidate.location.y;
+
+                        var symbol = generateSymbol();
+                        var graphic = new esri.Graphic(geom, symbol);
+                        graphicsLayer.add(graphic);
+
+                        return false;
+                    } else {
+                        alert("Found An Address But The Score Was Below The Search Threshold Of 50");
+                    }
+                });
+            }
+
+            if (geom !== undefined) {
+
+                map.centerAndZoom(geom, 16);
+                document.getElementById("generateMarkup").style.display = 'block';
+                document.getElementById("selectBasemap").style.display = 'block';
+
+            }
+        }
+
+        //generates The Symbol For The Map
+        function generateSymbol() {
+            //requires attributes/geom
+            var r = Math.floor(Math.random() * 256);
+            var g = Math.floor(Math.random() * 256);
+            var b = Math.floor(Math.random() * 256);
+            var symbol = new esri.symbol.SimpleMarkerSymbol(esri.symbol.SimpleMarkerSymbol.STYLE_CIRCLE, 18,
+                    new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_SOLID,
+                            new dojo.Color([r, g, b, 1]), 4),
+                    new dojo.Color([r, g, b, 0.7]));
+            return symbol;
+        }
+
+        //generates The Markup For The Information Panel
+        function generateMarkup() {
+
+            var currentExtent = map.extent;
+
+            var urlIndex = window.location.href.indexOf('#');
+            var cleanedUrl;
+
+            if (urlIndex > 0) {
+                cleanedUrl = window.location.href.substring(0, urlIndex);
+                cleanedUrl = cleanedUrl.split('?')[0];
+            } else {
+                cleanedUrl = window.location.href.split('?')[0];
+            }
+
+            embedUrl = cleanedUrl + "?xMin=" + currentExtent.xmin + "&yMin=" + currentExtent.ymin + "&xMax=" + currentExtent.xmax + "&yMax=" + currentExtent.ymax + "&pX=" + pX + "&pY=" + pY + "&basemap=" + currentBasemap + "&mode=embed";
+            embedIframe = "<iframe width='761' height='539' frameborder='0' scrolling='no' marginheight='0' marginwidth='0' src=" + embedUrl + "></iframe>";
+
+            var embedHeader = "<b>Share</b>";
+
+            var embedMessage = "<br/><br/><font size='2'><b><a href='#' id='htmlMarkup''>HTML Markup</a><br/>" +
+                    "<a href='#' id='urlMarkup'>URL</a><br/>" +
+                    "<a href='#' id='urlMarkup'>Email</a><br/><br/>" +
+                    "<a href='#' id='closeButton' onclick='closeMarkup(0);'>Close</a></b></font>";
+
+            updateInformation(embedHeader + embedMessage);
+            updateInformationLocation(3);
+
+            document.getElementById('htmlMarkup').setAttribute('data-clipboard-text', embedIframe);
+            document.getElementById('urlMarkup').setAttribute('data-clipboard-text', embedUrl);
+
+            setupClipboard();
+
+        }
+
+        //selects A Basemap
+        function selectBasemap() {
+
+            var embedHeader = "<b>Select Basemap</b>";
+            var embedMessage = "<br/><br/><font size='2'><b><a href='#' id='basemapStreets' onclick='changeBasemap(basemapStreets, 0)'>Streets</a><br/>" +
+                    "<a href='#' id='basemapTopographic' onclick='changeBasemap(basemapTopographic, 1);'>Topographic</a><br/>" +
+                    "<a href='#' id='basemapOcean' onclick='changeBasemap(basemapImagery, 2);'>Imagery</a><br/><br/>" +
+                    "<a href='#' id='closeButton' onclick='closeMarkup(0);'>Close</a></b></font>";
+
+            updateInformation(embedHeader + embedMessage);
+            updateInformationLocation(3);
+
+        }
+
+        //changes The Basemap
+        function changeBasemap(basemapToAdd, basemapId) {
+
+            map.removeLayer(map.getLayer("basemap"));
+
+            var basemap = new esri.layers.ArcGISTiledMapServiceLayer(basemapToAdd);
+            basemap.id = "basemap";
+            map.addLayer(basemap);
+            basemap.opacity = "0.75";
+
+            currentBasemap = basemapId;
+        }
+
+        //setups The Clipboard
+        function setupClipboard() {
+
+            var htmlMarkupClipboard = new ZeroClipboard(document.getElementById('htmlMarkup'));
+            var urlMarkupClipboard = new ZeroClipboard(document.getElementById('urlMarkup'));
+
+            htmlMarkupClipboard.on( 'complete', function (client, args) {
+
+                if (args.text.indexOf('iframe') == 1) {
+                    var embedMessage = "<span style=color:forestgreen;><b>Success:</b> HTML Markup Copied To Clipboard</span>";
+                    updateInformation(embedMessage);
+                    updateInformationLocation(3) ;
+                } else {
+                    var embedMessage = "<span style=color:forestgreen;><b>Success:</b> URL Copied To Clipboard</span>";
+                    updateInformation(embedMessage);
+                    updateInformationLocation(3);
+                }
+            });
+
+        }
+
+        //updates The Information Panel
+        function updateInformation(message) {
+            document.getElementById("information").innerHTML = message;
+            document.getElementById("information").style.display = 'block';
+        }
+
+        //updates The Location Of The Information Panel
+        function updateInformationLocation (location) {
+
+            if (location == 1) {
+                document.getElementById("information").style.top = '15px';
+            } else if (location == 2) {
+                document.getElementById("information").style.top = '58px';
+            } else {
+                document.getElementById("information").style.top = '95px';
+            }
+        }
+
+        //closes The Information Panel
+        function closeMarkup(closeMode) {
+
+            if (closeMode == 0) {
+                document.getElementById("information").style.display = 'none';
+            } else {
+                document.getElementById("information").style.display = 'none';
+                document.getElementById("generateMarkup").style.display = 'none';
+                document.getElementById("selectBasemap").style.display = 'none';
+            }
+        }
+
+        //parses The Querystring
+        function queryStringToParse(name) {
+
+            name = name.replace(/[\[]/, "\\\[").replace(/[\]]/, "\\\]");
+            var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+                    results = regex.exec(location.search);
+            return results == null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+        }
+
+        //gets The Absolute Url
+        function getAbsoluteUrl() {
+
+            var loc = window.location;
+            var pathName = loc.pathname.substring(0, loc.pathname.lastIndexOf('/') + 1);
+            return loc.href.substring(0, loc.href.length - ((loc.pathname + loc.search + loc.hash).length - pathName.length));
+        }
+
+        dojo.ready(init);
+
+    </script>
+</head>
+
+<body class="claro">
+    <div id="locator" style="display: none;"></div>
+    <div id="map"></div>
+    <div id="selectBasemap" class="buttons" onclick="selectBasemap();" style="display: none; position: absolute; top: 58px; left: 150px;">Basemap</div>
+    <div id="generateMarkup" class="buttons" onclick="generateMarkup();" style="display: none; position: absolute; top: 58px; left: 75px;">Share</div>
+    <div id="information" class="esriSimpleSlider" style="word-wrap: break-word; display: none;"></div>
+</body>
+</html>

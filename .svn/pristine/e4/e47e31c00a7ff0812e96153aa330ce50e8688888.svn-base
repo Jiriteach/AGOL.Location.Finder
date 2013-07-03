@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=7, IE=9, IE=10">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no"/>
+    <title>Location Finder</title>
+    <link rel="stylesheet"
+          href="http://serverapi.arcgisonline.com/jsapi/arcgis/3.5/js/dojo/dijit/themes/claro/claro.css">
+    <link rel="stylesheet" href="http://serverapi.arcgisonline.com/jsapi/arcgis/3.5/js/esri/css/esri.css">
+    <style>
+        html, body, #map {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #information {
+            top: 95px;
+            color: #444;
+            height: auto;
+            font-family: arial;
+            left: 70px;
+            margin: 5px;
+            padding: 10px;
+            position: absolute;
+            text-align: left;
+            width: 201px;
+            z-index: 40;
+        }
+
+        .buttons {
+            -webkit-border-radius:4px;
+            -moz-border-radius:4px;
+            -ms-border-radius:4px;
+            -o-border-radius:4px;
+            border-radius:4px;
+            background:#5daddd;
+            font-size:.70em;
+            line-height:2em;
+            -webkit-box-shadow:0 1px 2px rgba(0,0,0,0.125);
+            -moz-box-shadow:0 1px 2px rgba(0,0,0,0.125);
+            box-shadow:0 1px 2px rgba(0,0,0,0.125);
+            -webkit-box-sizing:border-box;
+            -moz-box-sizing:border-box;
+            box-sizing:border-box;
+            -webkit-user-select:none;
+            -moz-user-select:none;
+            user-select:none;
+            -webkit-transition:all .05s linear;
+            -moz-transition:all .05s linear;
+            -o-transition:all .05s linear;
+            transition:all .05s linear;
+            font-family:"Avenir LT W01 65 Medium",Arial,Helvetica,sans-serif;
+            border:none;
+            color:#FFF;
+            display:inline-block;
+            text-transform:uppercase;
+            white-space:nowrap;
+            cursor:pointer;
+            text-shadow:0 -1px 1px rgba(0,0,0,0.125);
+            letter-spacing:1px;
+            -webkit-font-smoothing:antialiased;
+            margin:1px 0 0;
+            padding:.3em 1.25em;
+        }
+
+        #locator {
+            display: block;
+            position: absolute;
+            z-index: 2;
+            top: 20px;
+            left: 74px;
+        }
+
+        body {
+            background-color: #FFF;
+            overflow: hidden;
+            font-family: "Trebuchet MS";
+        }
+    </style>
+    <script src="http://serverapi.arcgisonline.com/jsapi/arcgis/3.5/"></script>
+    <script>
+        dojo.require("esri.map");
+        dojo.require("esri.tasks.locator");
+        dojo.require("dojo.number");
+        dojo.require("esri.dijit.Geocoder");
+        dojo.require("dijit.Dialog");
+        dojo.require("dijit.form.Button");
+
+        var map, onloadLocator, graphicsLayer, initialExtent, locator, pX, pY;
+
+        function init() {
+
+            initialExtent = new esri.geometry.Extent(17145870.033696186, -5445562.888822708, 21842161.05153617, -3865456.6401119647,
+                    new esri.SpatialReference({wkid:102100}) );
+
+            map = new esri.Map("map", {
+                sliderStyle: "small",
+                extent: initialExtent
+            });
+
+            var basemap = new esri.layers.ArcGISTiledMapServiceLayer("http://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer");
+            map.addLayer(basemap);
+            basemap.opacity = "0.75";
+
+            var mode = queryStringToParse("mode");
+
+            if (mode == "embed") {
+                document.getElementById("locator").style.display = 'none';
+                document.getElementById("generateMarkup").style.display = 'none';
+
+            } else {
+
+                document.getElementById("locator").style.display = 'block';
+
+                locator = new esri.dijit.Geocoder({
+                    autoComplete: true,
+                    maxLocations: 10,
+                    autoNavigate: false,
+                    arcgisGeocoder: {
+                        placeholder: "Start Typing An Address ...",
+                        sourceCountry: "NZ"
+                    },
+                    map: map
+                }, "locator");
+                locator.startup();
+
+                onloadLocator = new esri.tasks.Locator("http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer");
+
+                dojo.connect(onloadLocator, "onAddressToLocationsComplete", showResults);
+                dojo.connect(locator, "onSelect", processSelection);
+                dojo.connect(locator, "onClear", closeMarkup);
+
+            }
+
+            graphicsLayer = new esri.layers.GraphicsLayer();
+            map.addLayer(graphicsLayer);
+
+            processQueryString();
+
+        }
+
+        function processSelection(selection) {
+
+            graphicsLayer.clear();
+
+            var geom = selection.feature.geometry;
+            pX = selection.feature.geometry.x;
+            pY = selection.feature.geometry.y;
+
+            var symbol = generateSymbol();
+            var graphic = new esri.Graphic(geom, symbol);
+            graphicsLayer.add(graphic);
+
+            if (geom !== undefined) {
+                map.centerAndZoom(geom, 16);
+                document.getElementById("generateMarkup").style.display = 'block';
+
+            }
+        }
+
+        function processQueryString() {
+
+            var mode = queryStringToParse("mode");
+
+            if (mode == "embed") {
+
+                var xmin = parseInt(queryStringToParse("xMin"));
+                var ymin = parseInt(queryStringToParse("yMin"));
+                var xmax = parseInt(queryStringToParse("xMax"));
+                var ymax = parseInt(queryStringToParse("yMax"));
+
+                if (isNaN(xmin) || isNaN(ymin) || isNaN(xmax) || isNaN(ymax)) {
+                    alert ("Looks Like An Invalid Extent. Redirecting ...");
+                    window.location.replace(getAbsoluteUrl());
+                }
+
+                var chosenExtent = new esri.geometry.Extent(xmin, ymin, xmax, ymax,
+                        new esri.SpatialReference({wkid: map.extent.spatialReference.wkid }));
+
+                var pLocation = new esri.geometry.Point(queryStringToParse("pX"), queryStringToParse("pY"), new esri.SpatialReference({ wkid: map.extent.spatialReference.wkid }));
+
+                var symbol = generateSymbol()
+                var graphic = new esri.Graphic(pLocation, symbol);
+                graphicsLayer.add(graphic);
+
+                map.setExtent(chosenExtent);
+
+            } else {
+                if (location.search == "") {
+                } else {
+
+                    var address = queryStringToParse("address");
+                    if (address == "") {
+                        //alert("Please Provide An Address To Search For ...");
+
+                        var customAlert = generateDialog("Error!", "Invalid Address/No Results Found");
+                        customAlert.show();
+
+                    } else {
+                        locate(address);
+                    }
+                }
+            }
+        }
+
+        function locate(address) {
+
+            var address = {"SingleLine": address, sourceCountry: "NZ"};
+            onloadLocator.outSpatialReference = map.extent.spatialReference;
+            var parameters = {
+                address: address,
+                outFields: ["Loc_name"]
+            }
+
+            onloadLocator.addressToLocations(parameters);
+        }
+
+        function showResults(candidates) {
+
+            var geom;
+
+            if (candidates.length == 0) {
+                alert("Invalid Address Or No Results Found");
+
+            } else {
+                dojo.every(candidates, function (candidate) {
+                    console.log(candidate.score);
+                    if (candidate.score > 50) {
+                        console.log(candidate.location);
+
+                        geom = candidate.location;
+                        pX = candidate.location.x;
+                        pY = candidate.location.y;
+
+                        var symbol = generateSymbol();
+                        var graphic = new esri.Graphic(geom, symbol);
+                        map.graphics.add(graphic);
+
+                        return false;
+                    } else {
+                        alert("Found An Address But The Score Was Below The Search Threshold Of 50");
+                    }
+                });
+            }
+
+            if (geom !== undefined) {
+
+                map.centerAndZoom(geom, 16);
+                document.getElementById("generateMarkup").style.display = 'block';
+
+            }
+        }
+
+        function generateSymbol() {
+            //requires attributes/geom
+            var r = Math.floor(Math.random() * 256);
+            var g = Math.floor(Math.random() * 256);
+            var b = Math.floor(Math.random() * 256);
+            var symbol = new esri.symbol.SimpleMarkerSymbol(esri.symbol.SimpleMarkerSymbol.STYLE_CIRCLE, 18,
+                    new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_SOLID,
+                            new dojo.Color([r, g, b, 1]), 4),
+                    new dojo.Color([r, g, b, 0.7]));
+            return symbol;
+        }
+
+        function generateMarkup() {
+
+            var currentExtent = map.extent;
+            var xMin = currentExtent.xmin;
+            var yMin = currentExtent.ymin;
+            var xMax = currentExtent.xmax;
+            var yMax = currentExtent.ymax;
+
+            var embedText = "<b>HTML Markup/URL</b>";
+            var embedUrl = window.location.href.split('?')[0] + "?xMin=" + xMin + "&yMin=" + yMin + "&xMax=" + xMax + "&yMax=" + yMax + "&pX=" + pX + "&pY=" + pY + "&mode=embed";
+            var embedButton = "<br/><br/><font size='2'><b><a href='#' id='htmlMarkup' onclick=''>HTML Markup</button></a><br/>" +
+                    "<a href='#' id='urlMarkup' onclick=''>URL</button></a><br/><br/>" +
+                    "<a href='#' id='closeButton' onclick='closeMarkup(1);'>Close</button></a></b></font>";
+
+
+            document.getElementById("information").innerHTML = embedText + embedButton;
+            document.getElementById("information").style.display = 'block';
+
+            //copyToClipboard(embedUrl);
+        }
+
+        function closeMarkup(closeMode) {
+
+            if (closeMode == 1) {
+                document.getElementById("information").style.display = 'none';
+            } else {
+                document.getElementById("information").style.display = 'none';
+                document.getElementById("generateMarkup").style.display = 'none';
+            }
+
+        }
+
+        function copyToClipboard (embedUrl) {
+            window.prompt ("Copy To Clipboard: Ctrl+C, Enter", embedUrl);
+        }
+
+        function queryStringToParse(name) {
+
+            name = name.replace(/[\[]/, "\\\[").replace(/[\]]/, "\\\]");
+            var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+                    results = regex.exec(location.search);
+            return results == null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+        }
+
+        function getAbsoluteUrl() {
+            var loc = window.location;
+            var pathName = loc.pathname.substring(0, loc.pathname.lastIndexOf('/') + 1);
+            return loc.href.substring(0, loc.href.length - ((loc.pathname + loc.search + loc.hash).length - pathName.length));
+        }
+
+        dojo.ready(init);
+
+    </script>
+</head>
+
+<body class="claro">
+    <div id="locator" style="display: none;"></div>
+    <div id="map"></div>
+    <div id="generateMarkup" class="buttons" onclick="generateMarkup();" style="display: none; position: absolute; top: 58px; left: 75px;">HTML Markup/URL</div>
+    <div id="information" class="esriSimpleSlider" style="word-wrap: break-word; display: none;"></div>
+</body>
+</html>
