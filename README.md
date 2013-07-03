@@ -1,5 +1,5 @@
-AGOL.locationFinder
-===================
+AGOL.Location.Finder
+====================
 
 A feature rich location finder powered by ArcGIS Online. This location finder uses the latest geocoding services
 from AGOL to execute fast and accurate geosearches.
